@@ -1,0 +1,88 @@
+# train and val datasets (image directory or *.txt file with image paths)
+project_name: 'yolov5s'
+
+train: ../dataset/yolov5s/images/train
+val: ../dataset/yolov5s/images/val
+
+# class names
+names: ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+        'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+        'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+        'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
+        'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+        'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+        'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
+        'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
+        'hair drier', 'toothbrush']
+
+# parameters
+nc: 80  # number of classes
+"""
+gd, gw는 신경망의 크기와 상관이 있는데, yolov5s(small)은 0.33, 0.55이지만, 
+yolov5x의 경우 1.33,1.25이다. 즉 gd(깊이),gw(넓이)가 클수록 모델이 전체적으로 크다는 소리
+"""
+depth_multiple: 0.33  # model depth multiple , gd(깊이)
+width_multiple: 0.50  # layer channel multiple, gw(넓이)
+
+# anchors
+"""
+anchors의 경우 output_layer에 있는 anchor의 크기와 개수를 알게 해주는 것으로
+
+가령 3개의 output_layer에 한개의 layer당 6개의 값 [w1,h1,w2,h2,w3,h3] 이므로 3개의 anchor에 대한 넓이와 높이값이 있다.
+
+그래서 number of anchors na도 3이다. 즉, 한 레이어당 anchor 개수 3개
+"""
+anchors:
+  - [116,90, 156,198, 373,326]  # P5/32
+  - [30,61, 62,45, 59,119]  # P4/16
+  - [10,13, 16,30, 33,23]  # P3/8
+
+# YOLOv5 backbone
+backbone:
+  # [from, number, module, args]
+  [[-1, 1, Focus, [64, 3]],  # 0-P1/2
+   [-1, 1, Conv, [128, 3, 2]],  # 1-P2/4
+   '''
+   Cross Stage Partial Network(CSPNet
+   
+   '''
+   [-1, 3, BottleneckCSP, [128]],
+   [-1, 1, Conv, [256, 3, 2]],  # 3-P3/8
+   [-1, 9, BottleneckCSP, [256]],
+   [-1, 1, Conv, [512, 3, 2]],  # 5-P4/16
+   [-1, 9, BottleneckCSP, [512]],
+   [-1, 1, Conv, [1024, 3, 2]], # 7-P5/32
+   '''
+   이 모듈은 YOLOv3-SPP에서 사용했던 Spatial Pyramid Pooling Layer 입니다.  spatial bins 으로 5*5, 9*9, 13*13 피쳐맵을 사용했으며, 
+   최종적으로 5 + 9 + 13 = 27의 크기로 고정된 1차원 형태의 배열을 생성하여, Fully Connected Layer에서 입력으로 들어갈 수 있게 합니다. 
+   '''
+   [-1, 1, SPP, [1024, [5, 9, 13]]],
+  ]
+
+# YOLOv5 head
+head:
+  [[-1, 3, BottleneckCSP, [1024, False]],  # 9
+
+   [-1, 1, Conv, [512, 1, 1]],
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [[-1, 6], 1, Concat, [1]],  # cat backbone P4
+   [-1, 3, BottleneckCSP, [512, False]],  # 13
+
+   [-1, 1, Conv, [256, 1, 1]],
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [[-1, 4], 1, Concat, [1]],  # cat backbone P3
+   [-1, 3, BottleneckCSP, [256, False]],
+   [-1, 1, nn.Conv2d, [na * (nc + 5), 1, 1]],  # 18 (P3/8-small)
+
+   [-2, 1, Conv, [256, 3, 2]],
+   [[-1, 14], 1, Concat, [1]],  # cat head P4
+   [-1, 3, BottleneckCSP, [512, False]],
+   [-1, 1, nn.Conv2d, [na * (nc + 5), 1, 1]],  # 22 (P4/16-medium)
+
+   [-2, 1, Conv, [512, 3, 2]],
+   [[-1, 10], 1, Concat, [1]],  # cat head P5
+   [-1, 3, BottleneckCSP, [1024, False]],
+   [-1, 1, nn.Conv2d, [na * (nc + 5), 1, 1]],  # 26 (P5/32-large)
+
+   [[], 1, Detect, [nc, anchors]],  # Detect(P5, P4, P3)
+  ]
